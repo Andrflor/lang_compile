@@ -1,6 +1,7 @@
 package x64_assembler
 
 import "core:fmt"
+import "core:testing"
 
 // ===== REGISTER DEFINITIONS =====
 Register64 :: enum u8 {
@@ -714,210 +715,621 @@ sfence :: proc() {} 	// Store fence
 // ===== PERFORMANCE MONITORING =====
 perfmon_instructions :: proc() {} 	// Placeholder for various performance monitoring instructions
 
-// Helper: automated test equality function.
-test_equal :: proc(test_name: string, expected: []u8, actual: []u8) {
+// Helper function to test if two byte arrays are equal
+test_equal :: proc(t: ^testing.T, desc: string, expected: []u8, actual: [$N]u8) {
 	if len(expected) != len(actual) {
-		fmt.printf("FAIL: %s: expected length %d, got %d\n", test_name, len(expected), len(actual))
+		fmt.println(
+			desc,
+			": Length mismatch. Expected",
+			len(expected),
+			"bytes, got",
+			len(actual),
+			"bytes.",
+		)
+		testing.fail(t)
 		return
 	}
-	for v, i in expected {
-		if v != actual[i] {
+
+	for i in 0 ..< len(expected) {
+		if expected[i] != actual[i] {
 			fmt.printf(
-				"FAIL: %s: at index %d, expected 0x%X, got 0x%X\n",
-				test_name,
+				"%s: Byte mismatch at position %d. Expected 0x%02X, got 0x%02X.\n",
+				desc,
 				i,
-				v,
+				expected[i],
 				actual[i],
 			)
+			testing.fail(t)
 			return
 		}
 	}
-	fmt.printf("PASS: %s\n", test_name)
 }
 
-main :: proc() {
-	// mov_r64_imm64: mov rax, 0x123456789ABCDEF0
-	t1: [10]u8 = mov_r64_imm64(Register64.RAX, 0x123456789ABCDEF0)
-	expected1: []u8 = asm_to_bytes("mov rax 0x123456789ABCDEF0")
-	test_equal("mov_r64_imm64", expected1, t1[:])
+@(test)
+test_mov_r64_imm64 :: proc(t: ^testing.T) {
+	test_equal(
+		t,
+		"mov rax, 0x123456789ABCDEF0",
+		asm_to_bytes("mov rax, 0x123456789ABCDEF0"),
+		mov_r64_imm64(Register64.RAX, 0x123456789ABCDEF0),
+	)
+	test_equal(t, "mov rcx, 0x0", asm_to_bytes("mov rcx, 0x0"), mov_r64_imm64(Register64.RCX, 0x0))
+	test_equal(
+		t,
+		"mov r8, 0xFFFFFFFFFFFFFFFF",
+		asm_to_bytes("mov r8, 0xFFFFFFFFFFFFFFFF"),
+		mov_r64_imm64(Register64.R8, 0xFFFFFFFFFFFFFFFF),
+	)
+	test_equal(
+		t,
+		"mov r15, 0xAAAAAAAAAAAAAAAA",
+		asm_to_bytes("mov r15, 0xAAAAAAAAAAAAAAAA"),
+		mov_r64_imm64(Register64.R15, 0xAAAAAAAAAAAAAAAA),
+	)
+}
 
-	// mov_r64_r64: mov rbx, rax
-	t2: [3]u8 = mov_r64_r64(Register64.RBX, Register64.RAX)
-	expected2: [3]u8 = [3]u8{0x48, 0x89, 0xC3}
-	test_equal("mov_r64_r64", expected2[:], t2[:])
+@(test)
+test_mov_r64_r64 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"mov rax, rbx",
+		asm_to_bytes("mov rax, rbx"),
+		mov_r64_r64(Register64.RAX, Register64.RBX),
+	)
+	test_equal(
+		t,
+		"mov r8, r9",
+		asm_to_bytes("mov r8, r9"),
+		mov_r64_r64(Register64.R8, Register64.R9),
+	)
+	test_equal(
+		t,
+		"mov r15, rax",
+		asm_to_bytes("mov r15, rax"),
+		mov_r64_r64(Register64.R15, Register64.RAX),
+	)
+	test_equal(
+		t,
+		"mov rsp, rbp",
+		asm_to_bytes("mov rsp, rbp"),
+		mov_r64_r64(Register64.RSP, Register64.RBP),
+	)
 
-	// mov_r64_m64: mov rcx, [0x00400000]
-	t3: [8]u8 = mov_r64_m64(Register64.RCX, 0x00400000)
-	expected3: [8]u8 = [8]u8{0x48, 0x8B, 0x0C, 0x25, 0x00, 0x00, 0x40, 0x00}
-	test_equal("mov_r64_m64", expected3[:], t3[:])
+	// Self-move case
+	test_equal(
+		t,
+		"mov rdx, rdx",
+		asm_to_bytes("mov rdx, rdx"),
+		mov_r64_r64(Register64.RDX, Register64.RDX),
+	)
+}
 
-	// mov_m64_r64: mov [0x00400000], rdx
-	t4: [8]u8 = mov_m64_r64(0x00400000, Register64.RDX)
-	expected4: [8]u8 = [8]u8{0x48, 0x89, 0x14, 0x25, 0x00, 0x00, 0x40, 0x00}
-	test_equal("mov_m64_r64", expected4[:], t4[:])
+@(test)
+test_mov_m64_r64 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"mov [0x1000], rax",
+		asm_to_bytes("mov [0x1000], rax"),
+		mov_m64_r64(0x1000, Register64.RAX),
+	)
+	test_equal(
+		t,
+		"mov [0x0], r15",
+		asm_to_bytes("mov [0x0], r15"),
+		mov_m64_r64(0x0, Register64.R15),
+	)
+	test_equal(
+		t,
+		"mov [0xFFFFFFFF], rdx",
+		asm_to_bytes("mov [0xFFFFFFFF], rdx"),
+		mov_m64_r64(0xFFFFFFFF, Register64.RDX),
+	)
+	test_equal(
+		t,
+		"mov [0x7FFFFFFF], r8",
+		asm_to_bytes("mov [0x7FFFFFFF], r8"),
+		mov_m64_r64(0x7FFFFFFF, Register64.R8),
+	)
+}
 
-	// movabs_r64_imm64: movabs rsi, 0xDEADBEEFCAFEBABE
-	t5: [10]u8 = movabs_r64_imm64(Register64.RSI, 0xDEADBEEFCAFEBABE)
-	expected5: [10]u8 = [10]u8{0x48, 0xBE, 0xBE, 0xBA, 0xFE, 0xCA, 0xEF, 0xBE, 0xAD, 0xDE}
-	test_equal("movabs_r64_imm64", expected5[:], t5[:])
+@(test)
+test_movabs_r64_imm64 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"movabs rax, 0x123456789ABCDEF0",
+		asm_to_bytes("movabs rax, 0x123456789ABCDEF0"),
+		movabs_r64_imm64(Register64.RAX, 0x123456789ABCDEF0),
+	)
+	test_equal(
+		t,
+		"movabs r10, 0x0",
+		asm_to_bytes("movabs r10, 0x0"),
+		movabs_r64_imm64(Register64.R10, 0x0),
+	)
+	test_equal(
+		t,
+		"movabs r15, 0xFFFFFFFFFFFFFFFF",
+		asm_to_bytes("movabs r15, 0xFFFFFFFFFFFFFFFF"),
+		movabs_r64_imm64(Register64.R15, 0xFFFFFFFFFFFFFFFF),
+	)
+	test_equal(
+		t,
+		"movabs rbx, 0x8000000000000000",
+		asm_to_bytes("movabs rbx, 0x8000000000000000"),
+		movabs_r64_imm64(Register64.RBX, 0x8000000000000000),
+	)
+}
 
-	// xchg_r64_r64: xchg rdi, rbx
-	t6: [3]u8 = xchg_r64_r64(Register64.RDI, Register64.RBX)
-	expected6: [3]u8 = [3]u8{0x48, 0x87, 0xDF}
-	test_equal("xchg_r64_r64", expected6[:], t6[:])
+@(test)
+test_xchg_r64_r64 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"xchg rax, rbx",
+		asm_to_bytes("xchg rax, rbx"),
+		xchg_r64_r64(Register64.RAX, Register64.RBX),
+	)
+	test_equal(
+		t,
+		"xchg r8, r9",
+		asm_to_bytes("xchg r8, r9"),
+		xchg_r64_r64(Register64.R8, Register64.R9),
+	)
+	test_equal(
+		t,
+		"xchg r15, rcx",
+		asm_to_bytes("xchg r15, rcx"),
+		xchg_r64_r64(Register64.R15, Register64.RCX),
+	)
 
-	// movsx_r64_r32: movsx rax, ecx
-	t7: [3]u8 = movsx_r64_r32(Register64.RAX, Register64.RCX)
-	expected7: [3]u8 = [3]u8{0x48, 0x63, 0xC1}
-	test_equal("movsx_r64_r32", expected7[:], t7[:])
+	// Commutative cases (should produce same encoding)
+	a := xchg_r64_r64(Register64.RAX, Register64.RCX)
+	b := xchg_r64_r64(Register64.RCX, Register64.RAX)
+	test_equal(t, "xchg RAX/RCX commutative", a[:], b)
 
-	// movzx_r64_r32: movzx rdx, ebx
-	t8: [3]u8 = movzx_r64_r32(Register64.RDX, Register64.RBX)
-	expected8: [3]u8 = [3]u8{0x40, 0x89, 0xDA}
-	test_equal("movzx_r64_r32", expected8[:], t8[:])
+	// Self-exchange case
+	test_equal(
+		t,
+		"xchg rdx, rdx",
+		asm_to_bytes("xchg rdx, rdx"),
+		xchg_r64_r64(Register64.RDX, Register64.RDX),
+	)
+}
 
-	// movbe_r64_m64: movbe rsi, [0x00400000]
-	t9: [10]u8 = movbe_r64_m64(Register64.RSI, 0x00400000)
-	expected9: [10]u8 = [10]u8{0x48, 0x0F, 0x38, 0xF0, 0x34, 0x25, 0x00, 0x00, 0x40, 0x00}
-	test_equal("movbe_r64_m64", expected9[:], t9[:])
+@(test)
+test_movsx_r64_r32 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"movsx rax, ebx",
+		asm_to_bytes("movsx rax, ebx"),
+		movsx_r64_r32(Register64.RAX, Register64.RBX),
+	)
+	test_equal(
+		t,
+		"movsx r8, ecx",
+		asm_to_bytes("movsx r8, ecx"),
+		movsx_r64_r32(Register64.R8, Register64.RCX),
+	)
+	test_equal(
+		t,
+		"movsx r15, eax",
+		asm_to_bytes("movsx r15, eax"),
+		movsx_r64_r32(Register64.R15, Register64.RAX),
+	)
+	test_equal(
+		t,
+		"movsx rbx, r9d",
+		asm_to_bytes("movsx rbx, r9d"),
+		movsx_r64_r32(Register64.RBX, Register64.R9),
+	)
+}
 
-	// movbe_m64_r64: movbe [0x00400000], rdi
-	t10: [10]u8 = movbe_m64_r64(0x00400000, Register64.RDI)
-	expected10: [10]u8 = [10]u8{0x48, 0x0F, 0x38, 0xF1, 0x3C, 0x25, 0x00, 0x00, 0x40, 0x00}
-	test_equal("movbe_m64_r64", expected10[:], t10[:])
+@(test)
+test_movzx_r64_r32 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"movzx rax, ebx",
+		asm_to_bytes("movzx rax, ebx"),
+		movzx_r64_r32(Register64.RAX, Register64.RBX),
+	)
+	test_equal(
+		t,
+		"movzx r8, ecx",
+		asm_to_bytes("movzx r8, ecx"),
+		movzx_r64_r32(Register64.R8, Register64.RCX),
+	)
+	test_equal(
+		t,
+		"movzx r15, eax",
+		asm_to_bytes("movzx r15, eax"),
+		movzx_r64_r32(Register64.R15, Register64.RAX),
+	)
+	test_equal(
+		t,
+		"movzx rbx, r9d",
+		asm_to_bytes("movzx rbx, r9d"),
+		movzx_r64_r32(Register64.RBX, Register64.R9),
+	)
+}
 
-	// bswap_r64: bswap rcx
-	t11: [3]u8 = bswap_r64(Register64.RCX)
-	expected11: [3]u8 = [3]u8{0x48, 0x0F, 0xC9}
-	test_equal("bswap_r64", expected11[:], t11[:])
+@(test)
+test_movbe_r64_m64 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"movbe rax, [0x1000]",
+		asm_to_bytes("movbe rax, [0x1000]"),
+		movbe_r64_m64(Register64.RAX, 0x1000),
+	)
+	test_equal(
+		t,
+		"movbe r15, [0x0]",
+		asm_to_bytes("movbe r15, [0x0]"),
+		movbe_r64_m64(Register64.R15, 0x0),
+	)
+	test_equal(
+		t,
+		"movbe rdx, [0xFFFFFFFF]",
+		asm_to_bytes("movbe rdx, [0xFFFFFFFF]"),
+		movbe_r64_m64(Register64.RDX, 0xFFFFFFFF),
+	)
+	test_equal(
+		t,
+		"movbe r8, [0x7FFFFFFF]",
+		asm_to_bytes("movbe r8, [0x7FFFFFFF]"),
+		movbe_r64_m64(Register64.R8, 0x7FFFFFFF),
+	)
+}
 
-	// mov_cr_r64: mov cr3, rbx
-	t12: [3]u8 = mov_cr_r64(3, Register64.RBX)
-	expected12: [3]u8 = [3]u8{0x0F, 0x22, 0xDB}
-	test_equal("mov_cr_r64", expected12[:], t12[:])
+@(test)
+test_movbe_m64_r64 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"movbe [0x1000], rax",
+		asm_to_bytes("movbe [0x1000], rax"),
+		movbe_m64_r64(0x1000, Register64.RAX),
+	)
+	test_equal(
+		t,
+		"movbe [0x0], r15",
+		asm_to_bytes("movbe [0x0], r15"),
+		movbe_m64_r64(0x0, Register64.R15),
+	)
+	test_equal(
+		t,
+		"movbe [0xFFFFFFFF], rdx",
+		asm_to_bytes("movbe [0xFFFFFFFF], rdx"),
+		movbe_m64_r64(0xFFFFFFFF, Register64.RDX),
+	)
+	test_equal(
+		t,
+		"movbe [0x7FFFFFFF], r8",
+		asm_to_bytes("movbe [0x7FFFFFFF], r8"),
+		movbe_m64_r64(0x7FFFFFFF, Register64.R8),
+	)
+}
 
-	// mov_r64_cr: mov rax, cr0
-	t13: [3]u8 = mov_r64_cr(Register64.RAX, 0)
-	expected13: [3]u8 = [3]u8{0x0F, 0x20, 0xC0}
-	test_equal("mov_r64_cr", expected13[:], t13[:])
+@(test)
+test_bswap_r64 :: proc(t: ^testing.T) {
+	// Test all registers
+	test_equal(t, "bswap rax", asm_to_bytes("bswap rax"), bswap_r64(Register64.RAX))
+	test_equal(t, "bswap rcx", asm_to_bytes("bswap rcx"), bswap_r64(Register64.RCX))
+	test_equal(t, "bswap r8", asm_to_bytes("bswap r8"), bswap_r64(Register64.R8))
+	test_equal(t, "bswap r15", asm_to_bytes("bswap r15"), bswap_r64(Register64.R15))
+}
 
-	// mov_cr0_r64: mov cr0, rdx
-	t14: [3]u8 = mov_cr0_r64(Register64.RDX)
-	expected14: [3]u8 = [3]u8{0x0F, 0x22, 0xC2}
-	test_equal("mov_cr0_r64", expected14[:], t14[:])
+@(test)
+test_mov_cr_r64 :: proc(t: ^testing.T) {
+	// Test various CR registers
+	test_equal(t, "mov cr0, rax", asm_to_bytes("mov cr0, rax"), mov_cr_r64(0, Register64.RAX))
+	test_equal(t, "mov cr3, rbx", asm_to_bytes("mov cr3, rbx"), mov_cr_r64(3, Register64.RBX))
+	test_equal(t, "mov cr4, r8", asm_to_bytes("mov cr4, r8"), mov_cr_r64(4, Register64.R8))
+	test_equal(t, "mov cr8, r15", asm_to_bytes("mov cr8, r15"), mov_cr_r64(8, Register64.R15))
+}
 
-	// mov_dr0_r64: mov dr0, rbx
-	t15: [3]u8 = mov_dr0_r64(Register64.RBX)
-	expected15: [3]u8 = [3]u8{0x0F, 0x23, 0xC3}
-	test_equal("mov_dr0_r64", expected15[:], t15[:])
+@(test)
+test_mov_r64_cr :: proc(t: ^testing.T) {
+	// Test various CR registers
+	test_equal(t, "mov rax, cr0", asm_to_bytes("mov rax, cr0"), mov_r64_cr(Register64.RAX, 0))
+	test_equal(t, "mov rbx, cr3", asm_to_bytes("mov rbx, cr3"), mov_r64_cr(Register64.RBX, 3))
+	test_equal(t, "mov r8, cr4", asm_to_bytes("mov r8, cr4"), mov_r64_cr(Register64.R8, 4))
+	test_equal(t, "mov r15, cr8", asm_to_bytes("mov r15, cr8"), mov_r64_cr(Register64.R15, 8))
+}
 
-	// mov_dr1_r64: mov dr1, rcx
-	t16: [3]u8 = mov_dr1_r64(Register64.RCX)
-	expected16: [3]u8 = [3]u8{0x0F, 0x23, 0xC9}
-	test_equal("mov_dr1_r64", expected16[:], t16[:])
+@(test)
+test_mov_cr0_r64 :: proc(t: ^testing.T) {
+	// Test all registers with CR0
+	test_equal(t, "mov cr0, rax", asm_to_bytes("mov cr0, rax"), mov_cr0_r64(Register64.RAX))
+	test_equal(t, "mov cr0, rcx", asm_to_bytes("mov cr0, rcx"), mov_cr0_r64(Register64.RCX))
+	test_equal(t, "mov cr0, r8", asm_to_bytes("mov cr0, r8"), mov_cr0_r64(Register64.R8))
+	test_equal(t, "mov cr0, r15", asm_to_bytes("mov cr0, r15"), mov_cr0_r64(Register64.R15))
+}
 
-	// mov_dr2_r64: mov dr2, rdx
-	t17: [3]u8 = mov_dr2_r64(Register64.RDX)
-	expected17: [3]u8 = [3]u8{0x0F, 0x23, 0xD2}
-	test_equal("mov_dr2_r64", expected17[:], t17[:])
+@(test)
+test_mov_cr2_r64 :: proc(t: ^testing.T) {
+	// Test all registers with CR2
+	test_equal(t, "mov cr2, rax", asm_to_bytes("mov cr2, rax"), mov_cr2_r64(Register64.RAX))
+	test_equal(t, "mov cr2, rcx", asm_to_bytes("mov cr2, rcx"), mov_cr2_r64(Register64.RCX))
+	test_equal(t, "mov cr2, r8", asm_to_bytes("mov cr2, r8"), mov_cr2_r64(Register64.R8))
+	test_equal(t, "mov cr2, r15", asm_to_bytes("mov cr2, r15"), mov_cr2_r64(Register64.R15))
+}
 
-	// mov_dr3_r64: mov dr3, rdi
-	t18: [3]u8 = mov_dr3_r64(Register64.RDI)
-	expected18: [3]u8 = [3]u8{0x0F, 0x23, 0xDF}
-	test_equal("mov_dr3_r64", expected18[:], t18[:])
+@(test)
+test_mov_cr3_r64 :: proc(t: ^testing.T) {
+	// Test all registers with CR3
+	test_equal(t, "mov cr3, rax", asm_to_bytes("mov cr3, rax"), mov_cr3_r64(Register64.RAX))
+	test_equal(t, "mov cr3, rcx", asm_to_bytes("mov cr3, rcx"), mov_cr3_r64(Register64.RCX))
+	test_equal(t, "mov cr3, r8", asm_to_bytes("mov cr3, r8"), mov_cr3_r64(Register64.R8))
+	test_equal(t, "mov cr3, r15", asm_to_bytes("mov cr3, r15"), mov_cr3_r64(Register64.R15))
+}
 
-	// mov_dr6_r64: mov dr6, rax
-	t19: [3]u8 = mov_dr6_r64(Register64.RAX)
-	expected19: [3]u8 = [3]u8{0x0F, 0x23, 0xF0}
-	test_equal("mov_dr6_r64", expected19[:], t19[:])
+@(test)
+test_mov_cr4_r64 :: proc(t: ^testing.T) {
+	// Test all registers with CR4
+	test_equal(t, "mov cr4, rax", asm_to_bytes("mov cr4, rax"), mov_cr4_r64(Register64.RAX))
+	test_equal(t, "mov cr4, rcx", asm_to_bytes("mov cr4, rcx"), mov_cr4_r64(Register64.RCX))
+	test_equal(t, "mov cr4, r8", asm_to_bytes("mov cr4, r8"), mov_cr4_r64(Register64.R8))
+	test_equal(t, "mov cr4, r15", asm_to_bytes("mov cr4, r15"), mov_cr4_r64(Register64.R15))
+}
 
-	// mov_dr7_r64: mov dr7, rbx
-	t20: [3]u8 = mov_dr7_r64(Register64.RBX)
-	expected20: [3]u8 = [3]u8{0x0F, 0x23, 0xFB}
-	test_equal("mov_dr7_r64", expected20[:], t20[:])
+@(test)
+test_mov_dr0_r64 :: proc(t: ^testing.T) {
+	// Test all registers with DR0
+	test_equal(t, "mov dr0, rax", asm_to_bytes("mov dr0, rax"), mov_dr0_r64(Register64.RAX))
+	test_equal(t, "mov dr0, rcx", asm_to_bytes("mov dr0, rcx"), mov_dr0_r64(Register64.RCX))
+	test_equal(t, "mov dr0, r8", asm_to_bytes("mov dr0, r8"), mov_dr0_r64(Register64.R8))
+	test_equal(t, "mov dr0, r15", asm_to_bytes("mov dr0, r15"), mov_dr0_r64(Register64.R15))
+}
 
-	// lea_r64_m64: lea rsi, [0x00400000]
-	t21: [8]u8 = lea_r64_m64(Register64.RSI, 0x00400000)
-	expected21: [8]u8 = [8]u8{0x48, 0x8D, 0x34, 0x25, 0x00, 0x00, 0x40, 0x00}
-	test_equal("lea_r64_m64", expected21[:], t21[:])
+@(test)
+test_mov_dr1_r64 :: proc(t: ^testing.T) {
+	// Test all registers with DR1
+	test_equal(t, "mov dr1, rax", asm_to_bytes("mov dr1, rax"), mov_dr1_r64(Register64.RAX))
+	test_equal(t, "mov dr1, rcx", asm_to_bytes("mov dr1, rcx"), mov_dr1_r64(Register64.RCX))
+	test_equal(t, "mov dr1, r8", asm_to_bytes("mov dr1, r8"), mov_dr1_r64(Register64.R8))
+	test_equal(t, "mov dr1, r15", asm_to_bytes("mov dr1, r15"), mov_dr1_r64(Register64.R15))
+}
 
-	// add_r64_imm32: add rbx, 0x12345678
-	t22: [7]u8 = add_r64_imm32(Register64.RBX, 0x12345678)
-	expected22: [7]u8 = [7]u8{0x48, 0x81, 0xC3, 0x78, 0x56, 0x34, 0x12}
-	test_equal("add_r64_imm32", expected22[:], t22[:])
+@(test)
+test_mov_dr2_r64 :: proc(t: ^testing.T) {
+	// Test all registers with DR2
+	test_equal(t, "mov dr2, rax", asm_to_bytes("mov dr2, rax"), mov_dr2_r64(Register64.RAX))
+	test_equal(t, "mov dr2, rcx", asm_to_bytes("mov dr2, rcx"), mov_dr2_r64(Register64.RCX))
+	test_equal(t, "mov dr2, r8", asm_to_bytes("mov dr2, r8"), mov_dr2_r64(Register64.R8))
+	test_equal(t, "mov dr2, r15", asm_to_bytes("mov dr2, r15"), mov_dr2_r64(Register64.R15))
+}
 
-	// add_r64_r64: add rax, rcx
-	t23: [3]u8 = add_r64_r64(Register64.RAX, Register64.RCX)
-	expected23: [3]u8 = [3]u8{0x48, 0x01, 0xC8}
-	test_equal("add_r64_r64", expected23[:], t23[:])
+@(test)
+test_mov_dr3_r64 :: proc(t: ^testing.T) {
+	// Test all registers with DR3
+	test_equal(t, "mov dr3, rax", asm_to_bytes("mov dr3, rax"), mov_dr3_r64(Register64.RAX))
+	test_equal(t, "mov dr3, rcx", asm_to_bytes("mov dr3, rcx"), mov_dr3_r64(Register64.RCX))
+	test_equal(t, "mov dr3, r8", asm_to_bytes("mov dr3, r8"), mov_dr3_r64(Register64.R8))
+	test_equal(t, "mov dr3, r15", asm_to_bytes("mov dr3, r15"), mov_dr3_r64(Register64.R15))
+}
 
-	// sub_r64_imm32: sub rdx, 0x87654321
-	t24: [7]u8 = sub_r64_imm32(Register64.RDX, 0x87654321)
-	expected24: [7]u8 = [7]u8{0x48, 0x81, 0xEA, 0x21, 0x43, 0x65, 0x87}
-	test_equal("sub_r64_imm32", expected24[:], t24[:])
+@(test)
+test_mov_dr6_r64 :: proc(t: ^testing.T) {
+	// Test all registers with DR6
+	test_equal(t, "mov dr6, rax", asm_to_bytes("mov dr6, rax"), mov_dr6_r64(Register64.RAX))
+	test_equal(t, "mov dr6, rcx", asm_to_bytes("mov dr6, rcx"), mov_dr6_r64(Register64.RCX))
+	test_equal(t, "mov dr6, r8", asm_to_bytes("mov dr6, r8"), mov_dr6_r64(Register64.R8))
+	test_equal(t, "mov dr6, r15", asm_to_bytes("mov dr6, r15"), mov_dr6_r64(Register64.R15))
+}
 
-	// sub_r64_r64: sub rbx, rsi
-	t25: [3]u8 = sub_r64_r64(Register64.RBX, Register64.RSI)
-	expected25: [3]u8 = [3]u8{0x48, 0x29, 0xF3}
-	test_equal("sub_r64_r64", expected25[:], t25[:])
+@(test)
+test_mov_dr7_r64 :: proc(t: ^testing.T) {
+	// Test all registers with DR7
+	test_equal(t, "mov dr7, rax", asm_to_bytes("mov dr7, rax"), mov_dr7_r64(Register64.RAX))
+	test_equal(t, "mov dr7, rcx", asm_to_bytes("mov dr7, rcx"), mov_dr7_r64(Register64.RCX))
+	test_equal(t, "mov dr7, r8", asm_to_bytes("mov dr7, r8"), mov_dr7_r64(Register64.R8))
+	test_equal(t, "mov dr7, r15", asm_to_bytes("mov dr7, r15"), mov_dr7_r64(Register64.R15))
+}
 
-	// inc_r64: inc rax
-	t26: [3]u8 = inc_r64(Register64.RAX)
-	expected26: [3]u8 = [3]u8{0x48, 0xFF, 0xC0}
-	test_equal("inc_r64", expected26[:], t26[:])
+@(test)
+test_lea_r64_m64 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"lea rax, [0x1000]",
+		asm_to_bytes("lea rax, [0x1000]"),
+		lea_r64_m64(Register64.RAX, 0x1000),
+	)
+	test_equal(
+		t,
+		"lea r15, [0x0]",
+		asm_to_bytes("lea r15, [0x0]"),
+		lea_r64_m64(Register64.R15, 0x0),
+	)
+	test_equal(
+		t,
+		"lea rdx, [0xFFFFFFFF]",
+		asm_to_bytes("lea rdx, [0xFFFFFFFF]"),
+		lea_r64_m64(Register64.RDX, 0xFFFFFFFF),
+	)
+	test_equal(
+		t,
+		"lea r8, [0x7FFFFFFF]",
+		asm_to_bytes("lea r8, [0x7FFFFFFF]"),
+		lea_r64_m64(Register64.R8, 0x7FFFFFFF),
+	)
+}
 
-	// dec_r64: dec rcx
-	t27: [3]u8 = dec_r64(Register64.RCX)
-	expected27: [3]u8 = [3]u8{0x48, 0xFF, 0xC9}
-	test_equal("dec_r64", expected27[:], t27[:])
+@(test)
+test_lea_r64_m :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"lea rax, [0x1000]",
+		asm_to_bytes("lea rax, [0x1000]"),
+		lea_r64_m(Register64.RAX, 0x1000),
+	)
+	test_equal(t, "lea r15, [0x0]", asm_to_bytes("lea r15, [0x0]"), lea_r64_m(Register64.R15, 0x0))
+	test_equal(
+		t,
+		"lea rdx, [0xFFFFFFFF]",
+		asm_to_bytes("lea rdx, [0xFFFFFFFF]"),
+		lea_r64_m(Register64.RDX, 0xFFFFFFFF),
+	)
+	test_equal(
+		t,
+		"lea r8, [0x7FFFFFFF]",
+		asm_to_bytes("lea r8, [0x7FFFFFFF]"),
+		lea_r64_m(Register64.R8, 0x7FFFFFFF),
+	)
+}
 
-	// neg_r64: neg rdx
-	t28: [3]u8 = neg_r64(Register64.RDX)
-	expected28: [3]u8 = [3]u8{0x48, 0xF7, 0xDA}
-	test_equal("neg_r64", expected28[:], t28[:])
+@(test)
+test_add_r64_imm32 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"add rax, 0x1000",
+		asm_to_bytes("add rax, 0x1000"),
+		add_r64_imm32(Register64.RAX, 0x1000),
+	)
+	test_equal(t, "add r15, 0x0", asm_to_bytes("add r15, 0x0"), add_r64_imm32(Register64.R15, 0x0))
+	test_equal(
+		t,
+		"add rdx, 0xFFFFFFFF",
+		asm_to_bytes("add rdx, 0xFFFFFFFF"),
+		add_r64_imm32(Register64.RDX, 0xFFFFFFFF),
+	)
+	test_equal(
+		t,
+		"add r8, 0x7FFFFFFF",
+		asm_to_bytes("add r8, 0x7FFFFFFF"),
+		add_r64_imm32(Register64.R8, 0x7FFFFFFF),
+	)
+}
 
-	// adc_r64_r64: adc rbx, rsi
-	t29: [3]u8 = adc_r64_r64(Register64.RBX, Register64.RSI)
-	expected29: [3]u8 = [3]u8{0x48, 0x11, 0xF3}
-	test_equal("adc_r64_r64", expected29[:], t29[:])
+@(test)
+test_add_r64_r64 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"add rax, rbx",
+		asm_to_bytes("add rax, rbx"),
+		add_r64_r64(Register64.RAX, Register64.RBX),
+	)
+	test_equal(
+		t,
+		"add r8, r9",
+		asm_to_bytes("add r8, r9"),
+		add_r64_r64(Register64.R8, Register64.R9),
+	)
+	test_equal(
+		t,
+		"add r15, rax",
+		asm_to_bytes("add r15, rax"),
+		add_r64_r64(Register64.R15, Register64.RAX),
+	)
+	test_equal(
+		t,
+		"add rsp, rbp",
+		asm_to_bytes("add rsp, rbp"),
+		add_r64_r64(Register64.RSP, Register64.RBP),
+	)
 
-	// sbb_r64_r64: sbb rdi, rbx
-	t30: [3]u8 = sbb_r64_r64(Register64.RDI, Register64.RBX)
-	expected30: [3]u8 = [3]u8{0x48, 0x19, 0xDF}
-	test_equal("sbb_r64_r64", expected30[:], t30[:])
+	// Self-add case
+	test_equal(
+		t,
+		"add rdx, rdx",
+		asm_to_bytes("add rdx, rdx"),
+		add_r64_r64(Register64.RDX, Register64.RDX),
+	)
+}
 
-	// xadd_r64_r64: xadd rdx, rbx
-	t31: [4]u8 = xadd_r64_r64(Register64.RDX, Register64.RBX)
-	expected31: [4]u8 = [4]u8{0x48, 0x0F, 0xC1, 0xDA}
-	test_equal("xadd_r64_r64", expected31[:], t31[:])
+@(test)
+test_sub_r64_imm32 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"sub rax, 0x1000",
+		asm_to_bytes("sub rax, 0x1000"),
+		sub_r64_imm32(Register64.RAX, 0x1000),
+	)
+	test_equal(t, "sub r15, 0x0", asm_to_bytes("sub r15, 0x0"), sub_r64_imm32(Register64.R15, 0x0))
+	test_equal(
+		t,
+		"sub rdx, 0xFFFFFFFF",
+		asm_to_bytes("sub rdx, 0xFFFFFFFF"),
+		sub_r64_imm32(Register64.RDX, 0xFFFFFFFF),
+	)
+	test_equal(
+		t,
+		"sub r8, 0x7FFFFFFF",
+		asm_to_bytes("sub r8, 0x7FFFFFFF"),
+		sub_r64_imm32(Register64.R8, 0x7FFFFFFF),
+	)
+}
 
-	// mul_r64: mul rsi
-	t32: [3]u8 = mul_r64(Register64.RSI)
-	expected32: [3]u8 = [3]u8{0x48, 0xF7, 0xE6}
-	test_equal("mul_r64", expected32[:], t32[:])
+@(test)
+test_sub_r64_r64 :: proc(t: ^testing.T) {
+	// Regular cases
+	test_equal(
+		t,
+		"sub rax, rbx",
+		asm_to_bytes("sub rax, rbx"),
+		sub_r64_r64(Register64.RAX, Register64.RBX),
+	)
+	test_equal(
+		t,
+		"sub r8, r9",
+		asm_to_bytes("sub r8, r9"),
+		sub_r64_r64(Register64.R8, Register64.R9),
+	)
+	test_equal(
+		t,
+		"sub r15, rax",
+		asm_to_bytes("sub r15, rax"),
+		sub_r64_r64(Register64.R15, Register64.RAX),
+	)
+	test_equal(
+		t,
+		"sub rsp, rbp",
+		asm_to_bytes("sub rsp, rbp"),
+		sub_r64_r64(Register64.RSP, Register64.RBP),
+	)
 
-	// imul_r64_r64: imul rax, rdi
-	t33: [4]u8 = imul_r64_r64(Register64.RAX, Register64.RDI)
-	expected33: [4]u8 = [4]u8{0x48, 0x0F, 0xAF, 0xC7}
-	test_equal("imul_r64_r64", expected33[:], t33[:])
+	// Self-subtract case
+	test_equal(
+		t,
+		"sub rdx, rdx",
+		asm_to_bytes("sub rdx, rdx"),
+		sub_r64_r64(Register64.RDX, Register64.RDX),
+	)
+}
 
-	// imul_r64_r64_imm32: imul rbx, rcx, 0x11223344
-	t34: [7]u8 = imul_r64_r64_imm32(Register64.RBX, Register64.RCX, 0x11223344)
-	expected34: [7]u8 = [7]u8{0x48, 0x69, 0xD9, 0x44, 0x33, 0x22, 0x11}
-	test_equal("imul_r64_r64_imm32", expected34[:], t34[:])
+@(test)
+test_inc_r64 :: proc(t: ^testing.T) {
+	// Test all registers
+	test_equal(t, "inc rax", asm_to_bytes("inc rax"), inc_r64(Register64.RAX))
+	test_equal(t, "inc rcx", asm_to_bytes("inc rcx"), inc_r64(Register64.RCX))
+	test_equal(t, "inc r8", asm_to_bytes("inc r8"), inc_r64(Register64.R8))
+	test_equal(t, "inc r15", asm_to_bytes("inc r15"), inc_r64(Register64.R15))
+}
 
-	// imul_r64_imm32: imul rdx, 0x55667788
-	t35: [7]u8 = imul_r64_imm32(Register64.RDX, 0x55667788)
-	expected35: []u8 = []u8{0x48, 0x69, 0xD2, 0x88, 0x77, 0x66, 0x55}
-	test_equal("imul_r64_imm32", expected35, t35[:])
+@(test)
+test_dec_r64 :: proc(t: ^testing.T) {
+	// Test all registers
+	test_equal(t, "dec rax", asm_to_bytes("dec rax"), dec_r64(Register64.RAX))
+	test_equal(t, "dec rcx", asm_to_bytes("dec rcx"), dec_r64(Register64.RCX))
+	test_equal(t, "dec r8", asm_to_bytes("dec r8"), dec_r64(Register64.R8))
+	test_equal(t, "dec r15", asm_to_bytes("dec r15"), dec_r64(Register64.R15))
+}
 
-	// div_r64: div rsi
-	t36: [3]u8 = div_r64(Register64.RSI)
-	expected36: [3]u8 = [3]u8{0x48, 0xF7, 0xF6}
-	test_equal("div_r64", expected36[:], t36[:])
-
-	// idiv_r64: idiv rdi
-	t37: [3]u8 = idiv_r64(Register64.RDI)
-	expected37: [3]u8 = [3]u8{0x48, 0xF7, 0xFF}
-	test_equal("idiv_r64", expected37[:], t37[:])
+@(test)
+test_neg_r64 :: proc(t: ^testing.T) {
+	// Test all registers
+	test_equal(t, "neg rax", asm_to_bytes("neg rax"), neg_r64(Register64.RAX))
+	test_equal(t, "neg rcx", asm_to_bytes("neg rcx"), neg_r64(Register64.RCX))
+	test_equal(t, "neg r8", asm_to_bytes("neg r8"), neg_r64(Register64.R8))
+	test_equal(t, "neg r15", asm_to_bytes("neg r15"), neg_r64(Register64.R15))
 }
